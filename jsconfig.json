@@ -1,0 +1,10 @@
+{
+  "exclude": ["lib", "node_modules"],
+  "compilerOptions": {
+    "checkJs": true,
+    "lib": ["DOM", "ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "target": "ES2020"
+  }
+}

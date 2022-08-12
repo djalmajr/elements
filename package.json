@@ -1,0 +1,25 @@
+{
+  "name": "@djalmajr/elements",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "find src -type f | xargs npm run esbuild --minify",
+    "dev": "run-p build serve watch",
+    "esbuild": "esbuild --outdir=lib --outbase=src",
+    "postversion": "git push && git push --tags && npm publish --access=public",
+    "prettier": "prettier --write {public,src}/**/*.{css,js}",
+    "serve": "node bin/server.js",
+    "version": "run-s prettier build",
+    "watch": "chokidar src/**/*.{css,js} -c 'npm run esbuild {path}'"
+  },
+  "devDependencies": {
+    "chokidar-cli": "^3.0.0",
+    "esbuild": "^0.14.38",
+    "express": "^4.18.1",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^2.6.2"
+  }
+}
