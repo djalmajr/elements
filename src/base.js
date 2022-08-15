@@ -1,7 +1,16 @@
-const bound = { get: (target, method) => target[method].bind(target) };
-const { createTreeWalker } = new Proxy(document, bound);
+const { assign } = Object;
+const { isArray } = Array;
 const cached = new WeakMap();
 const prefix = 'δ';
+
+// prettier-ignore
+const {
+  createDocumentFragment,
+  createElement,
+  createRange,
+  createTextNode,
+  createTreeWalker
+} = new Proxy(document, { get: (target, method) => target[method].bind(target) });
 
 // prettier-ignore
 const rx = {
@@ -22,17 +31,21 @@ const isNullish = (value) => value == null;
 
 /**
  *
- * @param {string} str
+ * @param {string} innerHTML
  * @return
  */
-const createHTML = (str) => new DOMParser().parseFromString(str, 'text/html').body;
+const createHTML = (innerHTML) => {
+  // return new DOMParser().parseFromString(innerHTML, 'text/html').body;
+  return assign(createElement('template'), { innerHTML }).content;
+};
 
 /**
  *
  * @param {Node} root
  * @param {any[]} values
+ * @return {Node}
  */
-const updateNodes = (root, values) => {
+const createNodes = (root, values) => {
   const walker = createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
   let search = `${prefix}0`;
   let idx = 0;
@@ -44,7 +57,17 @@ const updateNodes = (root, values) => {
 
     if (node.nodeType === Node.COMMENT_NODE) {
       if (/** @type {any} */ (node).data === search) {
-        // handleAnything(node)
+        if (isArray(values[idx]) && values[idx][0] instanceof DocumentFragment) {
+          values[idx].forEach((/** @type {DocumentFragment} */ value) => {
+            node.parentElement.insertBefore(value, node);
+          });
+        } else if (values[idx] instanceof DocumentFragment) {
+          node.parentElement.insertBefore(values[idx], node);
+        } else {
+          node.parentElement.insertBefore(createTextNode(values[idx]), node);
+        }
+
+        search = `${prefix}${++idx}`;
       }
     } else {
       while (node.hasAttribute(search)) {
@@ -131,7 +154,7 @@ const updateNodes = (root, values) => {
     }
   }
 
-  return root.childNodes;
+  return root;
 };
 
 /**
@@ -146,10 +169,11 @@ const cache = (chunks) => {
 /**
  *
  * @param {TemplateStringsArray} chunks
- * @param {number} [i]
  * @return
  */
-const normalize = (chunks, i = 0) => {
+const normalize = (chunks) => {
+  let idx = 0;
+
   return chunks
     .join('\x01')
     .trim()
@@ -159,8 +183,136 @@ const normalize = (chunks, i = 0) => {
       return '<' + ml + '>';
     })
     .replace(rx.parts, (match) => {
-      return match === '\x01' ? `<!--${prefix + i++}-->` : prefix + i++;
+      return match === '\x01' ? `<!--${prefix + idx++}-->` : prefix + idx++;
     });
+};
+
+/**
+ *
+ * @param {Node} prev
+ * @param {Node} next
+ */
+const diff = (prev, next) => {
+  const prevNodes = /** @type {HTMLElement[]} */ (Array.from(prev.childNodes));
+  const nextNodes = /** @type {HTMLElement[]} */ (Array.from(next.childNodes));
+
+  nextNodes.forEach((node, idx) => {
+    if (!prevNodes[idx]) {
+      /** @type {HTMLElement} */ (prev).append(node.cloneNode(true));
+      return;
+    }
+
+    if (!node.isEqualNode(prevNodes[idx])) {
+      // Check if node is further ahead in the DOM.
+      const ahead = prevNodes.slice(idx + 1).find((n) => node.isEqualNode(n));
+
+      // If not, insert the node before the current one.
+      if (!ahead) {
+        prevNodes[idx].before(node.cloneNode(true));
+        return;
+      }
+
+      // Otherwise, move it to the current spot.
+      prevNodes[idx].before(ahead);
+    }
+
+    for (const attr of /** @type {any} */ (prevNodes[idx]).attributes) {
+      if (!node.hasAttribute(attr.name)) {
+        prevNodes[idx].removeAttribute(attr.name);
+      }
+    }
+
+    for (const attr of /** @type {any} */ (node).attributes) {
+      prevNodes[idx].setAttribute(attr.name, attr.value);
+    }
+
+    if (node.hasChildNodes()) {
+      if (!prevNodes[idx].hasChildNodes()) {
+        const frag = createDocumentFragment();
+        diff(frag, node);
+        prevNodes[idx].appendChild(frag);
+        return;
+      }
+
+      diff(prevNodes[idx], node);
+    } else if (prevNodes[idx].hasChildNodes()) {
+      const range = createRange();
+      range.selectNode(prevNodes[idx]);
+      range.deleteContents();
+      return;
+    } else {
+      prevNodes[idx].textContent = node.textContent;
+    }
+  });
+
+  // if ()
+};
+
+/**
+ *
+ * @param {unknown} value
+ * @return
+ */
+const isObj = (value) => {
+  return ['object', 'array'].includes(
+    Object.prototype.toString.call(value).slice(8, -1).toLowerCase(),
+  );
+};
+
+/**
+ * Create a Proxy handler object
+ *
+ * @param {Function} [callback]
+ * @return {object} The handler object
+ */
+const handler = (callback) => {
+  return {
+    /**
+     *
+     * @param {object} obj
+     * @param {string} prop
+     * @return
+     */
+    get(obj, prop) {
+      if (prop === '_isProxy') {
+        return true;
+      }
+
+      if (isObj(obj[prop]) && !obj[prop]._isProxy) {
+        obj[prop] = new Proxy(obj[prop], handler(callback));
+      }
+
+      return obj[prop];
+    },
+
+    /**
+     *
+     * @param {object} obj
+     * @param {string} prop
+     * @param {unknown} value
+     * @return
+     */
+    set(obj, prop, value) {
+      if (obj[prop] !== value) {
+        obj[prop] = value;
+        callback?.();
+      }
+
+      return true;
+    },
+
+    /**
+     *
+     * @param {object} obj
+     * @param {string} prop
+     * @returns
+     */
+    deleteProperty(obj, prop) {
+      delete obj[prop];
+      callback?.();
+      return true;
+    },
+  };
 };
 
 /**
@@ -179,13 +331,18 @@ export const define = (tag, ctor, options) => {
  * @return
  */
 export function html(chunks, ...values) {
-  return updateNodes(createHTML(cache(chunks)), values);
+  return createNodes(createHTML(cache(chunks)), values);
 }
 
 export class Base extends HTMLElement {
   static shadowDOM = true;
 
   #mounted = false;
+
+  /**
+   * @type {object}
+   */
+  state = {};
 
   constructor() {
     super();
@@ -204,6 +361,7 @@ export class Base extends HTMLElement {
   connectedCallback() {
     super.connectedCallback?.();
     this.#mounted = true;
+    this.state = new Proxy(this.state, handler(this.#render));
     this.on('update', this.#render);
     this.#render();
   }
@@ -322,8 +480,17 @@ export class Base extends HTMLElement {
   }
 
   #render = () => {
-    if (!this.isConnected) return;
+    if (!this.isConnected) {
+      return;
+    }
 
-    this.$el.replaceChildren(...Array.from(this.render()));
+    if (this.nextTickId) {
+      window.cancelAnimationFrame(this.nextTickId);
+    }
+
+    this.nextTickId = window.requestAnimationFrame(() => {
+      this.$el.replaceChildren(...Array.from(this.render().childNodes));
+      // diff(this.$el, this.render());
+    });
   };
 }

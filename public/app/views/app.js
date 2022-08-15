@@ -4,28 +4,27 @@ import styles from './app.css' assert { type: 'css' };
 export class App extends Base {
   static styles = styles;
 
-  #count = 0;
-
-  connectedCallback() {
-    super.connectedCallback();
-    this.#updateCounter();
-  }
-
-  #updateCounter = () => {
-    this.#count++;
-    this.emit('update');
-    setTimeout(this.#updateCounter, 10000);
+  state = {
+    count: 0,
   };
 
   #print = () => {
-    console.log('clicked');
+    this.state.count++;
   };
 
+  #renderItems() {
+    return Array(3)
+      .fill(0)
+      .map((_, idx) => html`<span>${idx + 1}</span>`);
+  }
+
   render() {
-    console.log(this.#count);
+    const { count } = this.state;
+
     return html`
       <div>
-        <button .dataset=${{ count: this.#count }} @click=${this.#print}>Click me</button>
+        <button @click=${this.#print}>Count: ${count}</button>
+        ${this.#renderItems()}
       </div>
     `;
   }
