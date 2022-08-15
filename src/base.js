@@ -1,16 +1,9 @@
-const { assign } = Object;
-const { isArray } = Array;
 const cached = new WeakMap();
 const prefix = 'δ';
 
-// prettier-ignore
-const {
-  createDocumentFragment,
-  createElement,
-  createRange,
-  createTextNode,
-  createTreeWalker
-} = new Proxy(document, { get: (target, method) => target[method].bind(target) });
+const { createElement, createTextNode, createTreeWalker } = new Proxy(document, {
+  get: (target, method) => target[method].bind(target),
+});
 
 // prettier-ignore
 const rx = {
@@ -18,7 +11,7 @@ const rx = {
   empty: /^(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr)$/i,
   nodes: /<([a-z]+[a-z0-9:._-]*)([^>]*?)(\/?)>/g,
   attrs: /([^\s\\>"'=]+)\s*=\s*(['"]?)\x01/g,
-  parts: /[\x01\x02]/g,
+  parts: /[\x01\x02]/g, // \x01 = Nodes, \x02 = Atributes
 };
 
 /**
@@ -31,12 +24,23 @@ const isNullish = (value) => value == null;
 
 /**
  *
+ * @param {unknown} value
+ * @return
+ */
+const isObj = (value) => {
+  return ['object', 'array'].includes(
+    Object.prototype.toString.call(value).slice(8, -1).toLowerCase(),
+  );
+};
+
+/**
+ *
  * @param {string} innerHTML
  * @return
  */
 const createHTML = (innerHTML) => {
   // return new DOMParser().parseFromString(innerHTML, 'text/html').body;
-  return assign(createElement('template'), { innerHTML }).content;
+  return Object.assign(createElement('template'), { innerHTML }).content;
 };
 
 /**
@@ -57,15 +61,13 @@ const createNodes = (root, values) => {
 
     if (node.nodeType === Node.COMMENT_NODE) {
       if (/** @type {any} */ (node).data === search) {
-        if (isArray(values[idx]) && values[idx][0] instanceof DocumentFragment) {
-          values[idx].forEach((/** @type {DocumentFragment} */ value) => {
+        []
+          .concat(values[idx])
+          .flat(Infinity)
+          .forEach((val) => {
+            const value = val instanceof DocumentFragment ? val : createTextNode(val);
             node.parentElement.insertBefore(value, node);
           });
-        } else if (values[idx] instanceof DocumentFragment) {
-          node.parentElement.insertBefore(values[idx], node);
-        } else {
-          node.parentElement.insertBefore(createTextNode(values[idx]), node);
-        }
 
         search = `${prefix}${++idx}`;
       }
@@ -185,78 +187,6 @@ const normalize = (chunks) => {
     .replace(rx.parts, (match) => {
       return match === '\x01' ? `<!--${prefix + idx++}-->` : prefix + idx++;
     });
-};
-
-/**
- *
- * @param {Node} prev
- * @param {Node} next
- */
-const diff = (prev, next) => {
-  const prevNodes = /** @type {HTMLElement[]} */ (Array.from(prev.childNodes));
-  const nextNodes = /** @type {HTMLElement[]} */ (Array.from(next.childNodes));
-
-  nextNodes.forEach((node, idx) => {
-    if (!prevNodes[idx]) {
-      /** @type {HTMLElement} */ (prev).append(node.cloneNode(true));
-      return;
-    }
-
-    if (!node.isEqualNode(prevNodes[idx])) {
-      // Check if node is further ahead in the DOM.
-      const ahead = prevNodes.slice(idx + 1).find((n) => node.isEqualNode(n));
-
-      // If not, insert the node before the current one.
-      if (!ahead) {
-        prevNodes[idx].before(node.cloneNode(true));
-        return;
-      }
-
-      // Otherwise, move it to the current spot.
-      prevNodes[idx].before(ahead);
-    }
-
-    for (const attr of /** @type {any} */ (prevNodes[idx]).attributes) {
-      if (!node.hasAttribute(attr.name)) {
-        prevNodes[idx].removeAttribute(attr.name);
-      }
-    }
-
-    for (const attr of /** @type {any} */ (node).attributes) {
-      prevNodes[idx].setAttribute(attr.name, attr.value);
-    }
-
-    if (node.hasChildNodes()) {
-      if (!prevNodes[idx].hasChildNodes()) {
-        const frag = createDocumentFragment();
-        diff(frag, node);
-        prevNodes[idx].appendChild(frag);
-        return;
-      }
-
-      diff(prevNodes[idx], node);
-    } else if (prevNodes[idx].hasChildNodes()) {
-      const range = createRange();
-      range.selectNode(prevNodes[idx]);
-      range.deleteContents();
-      return;
-    } else {
-      prevNodes[idx].textContent = node.textContent;
-    }
-  });
-
-  // if ()
-};
-
-/**
- *
- * @param {unknown} value
- * @return
- */
-const isObj = (value) => {
-  return ['object', 'array'].includes(
-    Object.prototype.toString.call(value).slice(8, -1).toLowerCase(),
-  );
 };
 
 /**
@@ -490,7 +420,6 @@ export class Base extends HTMLElement {
 
     this.nextTickId = window.requestAnimationFrame(() => {
       this.$el.replaceChildren(...Array.from(this.render().childNodes));
-      // diff(this.$el, this.render());
     });
   };
 }

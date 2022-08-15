@@ -1,6 +1,16 @@
 import { Base, define, html } from '@djalmajr/elements/base.js';
 import styles from './app.css' assert { type: 'css' };
 
+/**
+ *
+ * @param {number} num
+ * @return
+ */
+const times = (num) =>
+  Array(num)
+    .fill(0)
+    .map((_, idx) => idx + 1);
+
 export class App extends Base {
   static styles = styles;
 
@@ -12,19 +22,15 @@ export class App extends Base {
     this.state.count++;
   };
 
-  #renderItems() {
-    return Array(3)
-      .fill(0)
-      .map((_, idx) => html`<span>${idx + 1}</span>`);
-  }
-
   render() {
     const { count } = this.state;
 
     return html`
       <div>
         <button @click=${this.#print}>Count: ${count}</button>
-        ${this.#renderItems()}
+        <ul>
+          ${times(3).map((idx) => html`<li>${idx}</li>`)}
+        </ul>
       </div>
     `;
   }
